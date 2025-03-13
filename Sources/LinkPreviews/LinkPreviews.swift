@@ -2,7 +2,7 @@
 // https://docs.swift.org/swift-book
 
 import Foundation
-@preconcurrency import LinkPresentation
+import LinkPresentation
 import SwiftUI
 
 // MARK: - UIKit Wrapper (iOS, tvOS)
@@ -113,12 +113,34 @@ public struct LinkPreview<Placeholder: View, Fallback: View>: View {
     }
     
     func fetchMetadata(for url: URL) async {
-        let metadata = await self.performFetchInBackground()
-        withAnimation { 
+//        let metadata = await self.performFetchInBackground()
+        let metadata = await performFetchInBackground_usingCompletion()
+        withAnimation {
             self.linkMetadata = metadata
         }
     }
     
+    private func performFetchInBackground_usingCompletion() async -> LPLinkMetadata {
+        do {
+            let metadata = try await withCheckedThrowingContinuation { @Sendable (continuation: CheckedContinuation<LPLinkMetadata, any Error>) in
+                LPMetadataProvider().startFetchingMetadata(for: url) { lpLinkMetadata, error in
+                    if let error { continuation.resume(throwing: error) }
+                    if let lpLinkMetadata {
+                        nonisolated(unsafe) let metadata = lpLinkMetadata
+                        continuation.resume(returning: metadata)
+                    }
+                }
+            }
+            return metadata
+        } catch {
+            onFetchError(error)
+            // blank metadata to let the view know that the fetch has finished
+            // so we shouldn't display the placeholder anymore.
+            return LPLinkMetadata()
+        }
+    }
+    
+    @available(*, deprecated, renamed: "performFetchInBackground_usingCompletion")
     private nonisolated func performFetchInBackground() async -> LPLinkMetadata {
         let lpLinkMetadata: LPLinkMetadata
         do {
@@ -126,6 +148,8 @@ public struct LinkPreview<Placeholder: View, Fallback: View>: View {
         } catch {
             onFetchError(error)
             lpLinkMetadata = LPLinkMetadata()
+            // blank metadata to let the view know that the fetch has finished
+            // so we shouldn't display the placeholder anymore.
         }
         return lpLinkMetadata
     }

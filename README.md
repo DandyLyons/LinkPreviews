@@ -24,6 +24,9 @@ LinkPreview(
 ## Roadmap
 This package has not yet been validated on tvOS, visionOS, macCatalyst. Please create an Issue on GitHub if you find a problem. 
 
+- [ ] Audit Swift Concurrency
+- [ ] Cache Link Metadata so it doesn't have to be refetched every time the `LinkPreview` is presented. 
+
 ### Swift 6 Concurrency
 A full concurrency audit of this package has not yet been completed. Currently this package uses `@preconcurrency import LinkPresentation`.  
 
