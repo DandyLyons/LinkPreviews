@@ -113,7 +113,10 @@ public struct LinkPreview<Placeholder: View, Fallback: View>: View {
     }
     
     func fetchMetadata(for url: URL) async {
-        self.linkMetadata = await self.performFetchInBackground()
+        let metadata = await self.performFetchInBackground()
+        withAnimation { 
+            self.linkMetadata = metadata
+        }
     }
     
     private nonisolated func performFetchInBackground() async -> LPLinkMetadata {
