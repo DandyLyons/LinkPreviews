@@ -42,12 +42,15 @@ struct AppKit_LPLinkViewSwiftUI: NSViewRepresentable {
 public struct LinkPreview<Placeholder: View, Fallback: View>: View {
     @State private var linkMetadata: LPLinkMetadata?
     let url: URL
+    let transition: AnyTransition
     let onFetchError: @Sendable (any Error) -> Void
     let placeholder: Placeholder
     let fallback: Fallback
     
+    @_disfavoredOverload
     public init(
         _ url: URL,
+        anyTransition: AnyTransition = .opacity,
         onFetchError: @escaping @Sendable (any Error) -> Void = { _ in },
         @ViewBuilder placeholder: () -> Placeholder = {
             Text("Loading...")
@@ -57,6 +60,27 @@ public struct LinkPreview<Placeholder: View, Fallback: View>: View {
         }
     ) {
         self.url = url
+        self.transition = anyTransition
+        self.onFetchError = onFetchError
+        self.linkMetadata = nil
+        self.placeholder = placeholder()
+        self.fallback = fallback(url)
+    }
+    
+    @available(iOS 17.0, *)
+    public init(
+        _ url: URL,
+        transition: any Transition = .blurReplace,
+        onFetchError: @escaping @Sendable (any Error) -> Void = { _ in },
+        @ViewBuilder placeholder: () -> Placeholder = {
+            Text("Loading...")
+        },
+        @ViewBuilder fallback: @escaping (URL) -> Fallback = { url in
+            Text("\(url.absoluteString)")
+        }
+    ) {
+        self.url = url
+        self.transition = AnyTransition(transition)
         self.onFetchError = onFetchError
         self.linkMetadata = nil
         self.placeholder = placeholder()
@@ -69,15 +93,20 @@ public struct LinkPreview<Placeholder: View, Fallback: View>: View {
                 if linkMetadata.title != nil {
 #if canImport(AppKit)
                     AppKit_LPLinkViewSwiftUI(metadata: linkMetadata)
+                        .transition(transition)
 #elseif canImport(UIKit)
                     UIKit_LPLinkViewSwiftUI(metadata: linkMetadata)
+                        .transition(transition)
+                        
 #endif
                     
                 } else {
                     fallback
+                        .transition(transition)
                 }
             } else {
                 placeholder
+                    .transition(transition)
             }
         }
         .task { await fetchMetadata(for: url) }
