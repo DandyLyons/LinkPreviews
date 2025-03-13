@@ -1,2 +1,119 @@
 // The Swift Programming Language
 // https://docs.swift.org/swift-book
+
+import Foundation
+@preconcurrency import LinkPresentation
+import SwiftUI
+
+// MARK: - UIKit Wrapper (iOS, tvOS)
+#if canImport(UIKit)
+struct UIKit_LPLinkViewSwiftUI: UIViewRepresentable {
+    typealias UIViewType = LPLinkView
+    var metadata: LPLinkMetadata?
+    
+    func makeUIView(context: Context) -> LPLinkView {
+        guard let metadata else { return LPLinkView() }
+        return LPLinkView(metadata: metadata)
+    }
+    
+    public func updateUIView(_ uiView: LPLinkView, context: Context) {
+        
+    }
+}
+#endif
+
+// MARK: - AppKit Wrapper (macOS)
+#if canImport(AppKit)
+struct AppKit_LPLinkViewSwiftUI: NSViewRepresentable {
+    typealias NSViewType = LPLinkView
+    var metadata: LPLinkMetadata?
+    
+    func makeNSView(context: Context) -> LPLinkView {
+        guard let metadata else { return LPLinkView() }
+        return LPLinkView(metadata: metadata)
+    }
+    
+    public func updateNSView(_ nsView: LPLinkView, context: Context) {
+        
+    }
+}
+#endif
+
+public struct LinkPreview<Placeholder: View, Fallback: View>: View {
+    @State private var linkMetadata: LPLinkMetadata?
+    let url: URL
+    let onFetchError: @Sendable (any Error) -> Void
+    let placeholder: Placeholder
+    let fallback: Fallback
+    
+    public init(
+        _ url: URL,
+        onFetchError: @escaping @Sendable (any Error) -> Void = { _ in },
+        @ViewBuilder placeholder: () -> Placeholder = {
+            Text("Loading...")
+        },
+        @ViewBuilder fallback: @escaping (URL) -> Fallback = { url in
+            Text("\(url.absoluteString)")
+        }
+    ) {
+        self.url = url
+        self.onFetchError = onFetchError
+        self.linkMetadata = nil
+        self.placeholder = placeholder()
+        self.fallback = fallback(url)
+    }
+    
+    public var body: some View {
+        Group {
+            if let linkMetadata {
+                if linkMetadata.title != nil {
+#if canImport(AppKit)
+                    AppKit_LPLinkViewSwiftUI(metadata: linkMetadata)
+#elseif canImport(UIKit)
+                    UIKit_LPLinkViewSwiftUI(metadata: linkMetadata)
+#endif
+                    
+                } else {
+                    fallback
+                }
+            } else {
+                placeholder
+            }
+        }
+        .task { await fetchMetadata(for: url) }
+    }
+    
+    func fetchMetadata(for url: URL) async {
+        self.linkMetadata = await self.performFetchInBackground()
+    }
+    
+    private nonisolated func performFetchInBackground() async -> LPLinkMetadata {
+        let lpLinkMetadata: LPLinkMetadata
+        do {
+            lpLinkMetadata = try await LPMetadataProvider().startFetchingMetadata(for: url)
+        } catch {
+            onFetchError(error)
+            lpLinkMetadata = LPLinkMetadata()
+        }
+        return lpLinkMetadata
+    }
+}
+
+#Preview {
+    LinkPreview(URL("https://www.google.com")!)
+        .frame(width: 400, height: 400)
+    
+    LinkPreview(
+        URL("https://www.google.com")!,
+        onFetchError: { error in
+            print(error)
+        },
+        placeholder: {
+            Text("Fetching preview...")
+        },
+        fallback: { url in
+            Text("\(url)")
+        }
+    )
+}
+
