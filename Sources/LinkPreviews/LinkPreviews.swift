@@ -1,119 +1,44 @@
 // The Swift Programming Language
 // https://docs.swift.org/swift-book
-
 import Foundation
 import LinkPresentation
 import SwiftUI
 
-// MARK: - UIKit Wrapper (iOS, tvOS)
-#if canImport(UIKit)
-struct UIKit_LPLinkViewSwiftUI: UIViewRepresentable {
-    typealias UIViewType = LPLinkView
-    var metadata: LPLinkMetadata?
-    
-    func makeUIView(context: Context) -> LPLinkView {
-        guard let metadata else { return LPLinkView() }
-        return LPLinkView(metadata: metadata)
-    }
-    
-    public func updateUIView(_ uiView: LPLinkView, context: Context) {
-        
-    }
-}
-#endif
-
-// MARK: - AppKit Wrapper (macOS)
-#if canImport(AppKit)
-struct AppKit_LPLinkViewSwiftUI: NSViewRepresentable {
-    typealias NSViewType = LPLinkView
-    var metadata: LPLinkMetadata?
-    
-    func makeNSView(context: Context) -> LPLinkView {
-        guard let metadata else { return LPLinkView() }
-        return LPLinkView(metadata: metadata)
-    }
-    
-    public func updateNSView(_ nsView: LPLinkView, context: Context) {
-        
-    }
-}
-#endif
-
-public struct LinkPreview<Placeholder: View, Fallback: View>: View {
+public struct LinkPreview<Preview: View, Placeholder: View, Fallback: View>: View {
     @State private var linkMetadata: LPLinkMetadata?
     let url: URL
     let transition: AnyTransition
     let onFetchError: @Sendable (any Error) -> Void
-    let placeholder: Placeholder
-    let fallback: Fallback
-    
-    @_disfavoredOverload
-    public init(
-        _ url: URL,
-        anyTransition: AnyTransition = .opacity,
-        onFetchError: @escaping @Sendable (any Error) -> Void = { _ in },
-        @ViewBuilder placeholder: () -> Placeholder = {
-            Text("Loading...")
-        },
-        @ViewBuilder fallback: @escaping (URL) -> Fallback = { url in
-            Text("\(url.absoluteString)")
-        }
-    ) {
-        self.url = url
-        self.transition = anyTransition
-        self.onFetchError = onFetchError
-        self.linkMetadata = nil
-        self.placeholder = placeholder()
-        self.fallback = fallback(url)
-    }
-    
-    @available(iOS 17.0, *)
-    public init(
-        _ url: URL,
-        transition: any Transition = .blurReplace,
-        onFetchError: @escaping @Sendable (any Error) -> Void = { _ in },
-        @ViewBuilder placeholder: () -> Placeholder = {
-            Text("Loading...")
-        },
-        @ViewBuilder fallback: @escaping (URL) -> Fallback = { url in
-            Text("\(url.absoluteString)")
-        }
-    ) {
-        self.url = url
-        self.transition = AnyTransition(transition)
-        self.onFetchError = onFetchError
-        self.linkMetadata = nil
-        self.placeholder = placeholder()
-        self.fallback = fallback(url)
-    }
+    let preview: ((LPLinkMetadata) -> Preview)?
+    let placeholder: () -> Placeholder
+    let fallback: (URL) -> Fallback
     
     public var body: some View {
         Group {
             if let linkMetadata {
-                if linkMetadata.title != nil {
-#if canImport(AppKit)
-                    AppKit_LPLinkViewSwiftUI(metadata: linkMetadata)
-                        .transition(transition)
-#elseif canImport(UIKit)
-                    UIKit_LPLinkViewSwiftUI(metadata: linkMetadata)
-                        .transition(transition)
-                        
-#endif
-                    
+                // fetchMetadata(for: URL) did finish
+                if linkMetadata.title == nil {
+                    // the linkMetadata is missing data
+                    fallback(url).transition(transition)
                 } else {
-                    fallback
-                        .transition(transition)
+                    // the linkMetadata has enough info to generate a preview
+                    if let preview {
+                        // the caller provided a custom preview
+                        preview(linkMetadata).transition(transition)
+                    } else {
+                        // the caller did not provide a custom preview
+                        defaultPreview(for: linkMetadata).transition(transition)
+                    }
                 }
             } else {
-                placeholder
-                    .transition(transition)
+                placeholder().transition(transition)
             }
         }
         .task { await fetchMetadata(for: url) }
     }
     
     func fetchMetadata(for url: URL) async {
-//        let metadata = await self.performFetchInBackground()
+        //        let metadata = await self.performFetchInBackground()
         let metadata = await performFetchInBackground_usingCompletion()
         withAnimation {
             self.linkMetadata = metadata
@@ -134,42 +59,183 @@ public struct LinkPreview<Placeholder: View, Fallback: View>: View {
             return metadata
         } catch {
             onFetchError(error)
-            // blank metadata to let the view know that the fetch has finished
+            // return blank metadata to let the view know that the fetch has finished
             // so we shouldn't display the placeholder anymore.
             return LPLinkMetadata()
         }
     }
     
-    @available(*, deprecated, renamed: "performFetchInBackground_usingCompletion")
-    private nonisolated func performFetchInBackground() async -> LPLinkMetadata {
-        let lpLinkMetadata: LPLinkMetadata
-        do {
-            lpLinkMetadata = try await LPMetadataProvider().startFetchingMetadata(for: url)
-        } catch {
-            onFetchError(error)
-            lpLinkMetadata = LPLinkMetadata()
-            // blank metadata to let the view know that the fetch has finished
-            // so we shouldn't display the placeholder anymore.
+#if canImport(AppKit)
+    func defaultPreview(for linkMetadata: LPLinkMetadata) -> AppKit_LPLinkViewSwiftUI {
+        AppKit_LPLinkViewSwiftUI(metadata: linkMetadata)
+    }
+#elseif canImport(UIKit)
+    func defaultPreview(for linkMetadata: LPLinkMetadata) -> UIKit_LPLinkViewSwiftUI {
+        UIKit_LPLinkViewSwiftUI(metadata: linkMetadata)
+    }
+#endif
+}
+
+// MARK: Initializers
+extension LinkPreview {
+    @available(iOS 17.0, macOS 14.0, tvOS 17.0, *)
+    public init(
+        url: URL,
+        transition: some Transition = .blurReplace,
+        onFetchError: @escaping @Sendable (Error) -> Void = { _ in },
+        customPreview: @escaping @Sendable ((LPLinkMetadata) -> Preview),
+        @ViewBuilder placeholder: @escaping @Sendable () -> Placeholder = {
+            Text("Loading...")
+        },
+        @ViewBuilder fallback: @escaping @Sendable (URL) -> Fallback = { url in
+            Text("\(url.absoluteString)")
         }
-        return lpLinkMetadata
+    ) {
+        self.url = url
+        self.transition = AnyTransition(transition)
+        self.onFetchError = onFetchError
+        self.linkMetadata = nil
+        self.preview = customPreview
+        self.placeholder = placeholder
+        self.fallback = fallback
+    }
+    
+    @_disfavoredOverload
+    public init(
+        url: URL,
+        transition: AnyTransition = .opacity,
+        onFetchError: @escaping @Sendable (Error) -> Void = { _ in },
+        customPreview: @escaping @Sendable ((LPLinkMetadata) -> Preview),
+        @ViewBuilder placeholder: @escaping @Sendable () -> Placeholder = {
+            Text("Loading...")
+        },
+        @ViewBuilder fallback: @escaping @Sendable (URL) -> Fallback = { url in
+            Text("\(url.absoluteString)")
+        }
+    ) {
+        self.url = url
+        self.transition = transition
+        self.onFetchError = onFetchError
+        self.linkMetadata = nil
+        self.preview = customPreview
+        self.placeholder = placeholder
+        self.fallback = fallback
     }
 }
 
-#Preview {
-    LinkPreview(URL("https://www.google.com")!)
-        .frame(width: 400, height: 400)
-    
-    LinkPreview(
-        URL("https://www.google.com")!,
-        onFetchError: { error in
-            print(error)
+#if canImport(AppKit)
+extension LinkPreview where Preview == AppKit_LPLinkViewSwiftUI {
+    @available(iOS 17.0, macOS 14.0, tvOS 17.0, *)
+    public init(
+        url: URL,
+        transition: some Transition = .blurReplace,
+        onFetchError: @escaping @Sendable (Error) -> Void = { _ in },
+        @ViewBuilder placeholder: @escaping @Sendable () -> Placeholder = {
+            Text("Loading...")
         },
-        placeholder: {
-            Text("Fetching preview...")
-        },
-        fallback: { url in
-            Text("\(url)")
+        @ViewBuilder fallback: @escaping @Sendable (URL) -> Fallback = { url in
+            Text("\(url.absoluteString)")
         }
-    )
+    ) {
+        self.url = url
+        self.transition = AnyTransition(transition)
+        self.onFetchError = onFetchError
+        self.linkMetadata = nil
+        self.preview = nil
+        self.placeholder = placeholder
+        self.fallback = fallback
+    }
+    
+    @_disfavoredOverload
+    public init(
+        url: URL,
+        transition: AnyTransition = .opacity,
+        onFetchError: @escaping @Sendable (Error) -> Void = { _ in },
+        @ViewBuilder placeholder: @escaping @Sendable () -> Placeholder = {
+            Text("Loading...")
+        },
+        @ViewBuilder fallback: @escaping @Sendable (URL) -> Fallback = { url in
+            Text("\(url.absoluteString)")
+        }
+    ) {
+        self.url = url
+        self.transition = transition
+        self.onFetchError = onFetchError
+        self.linkMetadata = nil
+        self.preview = nil
+        self.placeholder = placeholder
+        self.fallback = fallback
+    }
+}
+#elseif canImport(UIKit)
+extension LinkPreview where Preview == UIKit_LPLinkViewSwiftUI {
+    @available(iOS 17.0, *)
+    public init(
+        url: URL,
+        transition: some Transition = .blurReplace,
+        onFetchError: @escaping @Sendable (Error) -> Void = { _ in },
+        @ViewBuilder placeholder: @escaping @Sendable () -> Placeholder = {
+            Text("Loading...")
+        },
+        @ViewBuilder fallback: @escaping @Sendable (URL) -> Fallback = { url in
+            Text("\(url.absoluteString)")
+        }
+    ) {
+        self.url = url
+        self.transition = AnyTransition(transition)
+        self.onFetchError = onFetchError
+        self.linkMetadata = nil
+        self.preview = nil
+        self.placeholder = placeholder
+        self.fallback = fallback
+    }
+    
+    @_disfavoredOverload
+    public init(
+        url: URL,
+        transition: AnyTransition = .opacity,
+        onFetchError: @escaping @Sendable (Error) -> Void = { _ in },
+        @ViewBuilder placeholder: @escaping @Sendable () -> Placeholder = {
+            Text("Loading...")
+        },
+        @ViewBuilder fallback: @escaping @Sendable (URL) -> Fallback = { url in
+            Text("\(url.absoluteString)")
+        }
+    ) {
+        self.url = url
+        self.transition = transition
+        self.onFetchError = onFetchError
+        self.linkMetadata = nil
+        self.preview = nil
+        self.placeholder = placeholder
+        self.fallback = fallback
+    }
+}
+#endif
+
+// MARK: Previews
+#Preview {
+    if #available(iOS 17.0, macOS 14.0, tvOS 17.0, *) {
+        LinkPreview(url: URL("https://www.google.com")!)
+            .frame(width: 400, height: 400)
+        
+        LinkPreview(url: URL("this is not a valid url")!,
+                    onFetchError: { error in print(error)},
+                    placeholder: { Text("Fetching preview...") },
+                    fallback: { url in Text("\(url)")}
+        )
+        
+    } else {
+        // Fallback on earlier versions
+        LinkPreview(url: URL("https://www.google.com")!)
+            .frame(width: 400, height: 400)
+        
+        LinkPreview(url: URL("this is not a valid url")!,
+                    onFetchError: { error in print(error)},
+                    placeholder: { Text("Fetching preview...") },
+                    fallback: { url in Text("\(url)")}
+        )
+    }
+    
 }
 
