@@ -19,6 +19,23 @@ public struct OGLinkPreview<Preview: View, Placeholder: View, Fallback: View>: V
     let placeholder: () -> Placeholder
     let fallback: (URL) -> Fallback
     
+    public init(
+        url: URL,
+        transition: AnyTransition,
+        onFetchError: @escaping @Sendable (any Error) -> Void,
+        preview: (@Sendable (OpenGraph) -> Preview)?,
+        placeholder: @escaping () -> Placeholder,
+        fallback: @escaping (URL) -> Fallback
+    ) {
+        self.openGraph = nil
+        self.url = url
+        self.transition = transition
+        self.onFetchError = onFetchError
+        self.preview = preview
+        self.placeholder = placeholder
+        self.fallback = fallback
+    }
+    
     public var body: some View {
         Group {
             if let openGraph {
@@ -31,29 +48,28 @@ public struct OGLinkPreview<Preview: View, Placeholder: View, Fallback: View>: V
                 }
             } else {
                 let _ = print("placeholderView")
-                placeholderView.transition(transition)
+                placeholder().transition(transition)
             }
         }
         .task { if openGraph == nil { await fetch(url: url) } }
+//        .task { await fetch(url: url) }
     }
     
     @ViewBuilder func openGraphView(og: OpenGraph) -> some View {
-        if let type: String = og[.type] {
-            if let typedOGView = TypedOpenGraphView(og: og) {
-                let _ = print("typedOGView")
-                typedOGView
-            } else {
-                Text("Could not find a `og:type` property...")
-            }
+        if let typedOGView = TypedOpenGraphView(og: og) {
+            let _ = print("typedOGView")
+            typedOGView
+        } else {
+            Text("Could not find a `og:type` property...")
         }
     }
     
-    @ViewBuilder var placeholderView: some View {
-        EmptyView()
-    }
-    
     func fetch(url: URL) async {
-        let openGraph = OpenGraph.fetch(url: url, completion: handleFetch(result:))
+        do {
+            self.openGraph = try await OpenGraph.fetch(url: url)
+        } catch {
+            print("failed to fetch")
+        }
     }
     
     func handleFetch(result: Result<OpenGraph, any Error>) {
