@@ -11,8 +11,13 @@ let package = Package(
         .library(
             name: "LinkPreviews",
             targets: ["LinkPreviews"]),
+        
+        .library(
+            name: "OGLinkPreviews",
+            targets: ["OGLinkPreviews"]),
     ],
     dependencies: [
+        .package(url: "https://github.com/satoshi-takano/OpenGraph.git", from: "1.6.0")
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -23,6 +28,14 @@ let package = Package(
             ],
             swiftSettings: [
 //                .swiftLanguageMode(.v5),
+            ]
+        ),
+        .target(
+            name: "OGLinkPreviews",
+            dependencies: [
+                .product(name: "OpenGraph", package: "opengraph")
+            ],
+            swiftSettings: [
             ]
         ),
 
